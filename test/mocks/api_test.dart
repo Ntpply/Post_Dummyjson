@@ -17,6 +17,18 @@ void main() {
   setUp(() {
     mockApiService = MockApiService();
   });
+  Future<void> _buildCreatePostScreen(WidgetTester tester) async {
+    final container = ProviderContainer(
+      overrides: [apiServiceProvider.overrideWithValue(mockApiService)],
+    );
+
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: MaterialApp(home: CreatePostScreen()),
+      ),
+    );
+  }
 
   testWidgets('PostListScreen shows mocked posts', (tester) async {
     when(mockApiService.fetchPosts()).thenAnswer(
@@ -42,30 +54,75 @@ void main() {
     expect(find.text('Mock Post 1'), findsOneWidget);
     expect(find.text('Mock Post 2'), findsOneWidget);
   });
-  testWidgets('CreatePostScreen shows validation errors when form is empty', (
-    tester,
-  ) async {
-    final container = ProviderContainer(
-      overrides: [apiServiceProvider.overrideWithValue(mockApiService)],
-    );
 
-    await tester.pumpWidget(
-      UncontrolledProviderScope(
-        container: container,
-        child: MaterialApp(home: CreatePostScreen()),
+  testWidgets('Displays validation errors if fields are empty', (tester) async {
+    await _buildCreatePostScreen(tester);
+
+    await tester.tap(find.text('Publish Post'));
+    await tester.pump();
+
+    expect(find.text('Please enter a title'), findsOneWidget);
+    expect(find.text('Please enter post content'), findsOneWidget);
+  });
+
+  testWidgets('Successfully submits post with valid input', (tester) async {
+    when(mockApiService.createPost(any)).thenAnswer(
+      (_) async => Post(
+        id: 101,
+        title: 'Test Title',
+        body: 'Test Body Content',
+        userId: 1,
       ),
     );
 
-    await tester.tap(find.text('Create Post'));
-    await tester.pumpAndSettle();
+    await _buildCreatePostScreen(tester);
+    await tester.enterText(find.byType(TextFormField).at(0), 'Test Title');
+    await tester.enterText(
+      find.byType(TextFormField).at(1),
+      'Test Body Content',
+    );
 
-    expect(find.text('Please enter title'), findsOneWidget);
-    expect(find.text('Please enter body'), findsOneWidget);
-    verifyNever(mockApiService.createPost(any));
+    await tester.tap(find.text('Publish Post'));
+    await tester.pump(); 
+    await tester.pump(); 
+    await tester.pump(const Duration(seconds: 1)); 
+
+    verify(
+      mockApiService.createPost({
+        'title': 'Test Title',
+        'body': 'Test Body Content',
+        'userId': 1,
+      }),
+    ).called(1);
+
+    expect(find.byType(CreatePostScreen), findsNothing);
+  });
+
+  testWidgets('Shows error snackbar on API failure', (tester) async {
+    when(mockApiService.createPost(any)).thenThrow(Exception('API Failed'));
+
+    await _buildCreatePostScreen(tester);
+
+    await tester.enterText(find.byType(TextFormField).at(0), 'Error Title');
+    await tester.enterText(
+      find.byType(TextFormField).at(1),
+      'Error Body Content',
+    );
+
+    await tester.tap(find.text('Publish Post'));
+    await tester.pump(); // loading
+    await tester.pump(const Duration(seconds: 1)); // simulate async delay
+
+    expect(find.textContaining('Error:'), findsOneWidget);
   });
   testWidgets('PostDetailScreen shows post and comments', (tester) async {
     // mock post
-    final post = Post(id: 1, title: 'Mock Post Title', body: 'Mock body text', userId: 1);
+    final post = Post(
+      id: 1,
+      title: 'Mock Post Title',
+      body: 'Mock body text',
+      userId: 1,
+    );
 
     // mock comments
     final comments = [
@@ -74,7 +131,9 @@ void main() {
     ];
 
     when(mockApiService.fetchPostById(1)).thenAnswer((_) async => post);
-    when(mockApiService.fetchCommentsByPostId(1)).thenAnswer((_) async => comments);
+    when(
+      mockApiService.fetchCommentsByPostId(1),
+    ).thenAnswer((_) async => comments);
 
     final container = ProviderContainer(
       overrides: [apiServiceProvider.overrideWithValue(mockApiService)],
@@ -143,12 +202,12 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(seconds: 1)); // load data
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.text('Edit Post'));
     await tester.pump();
 
     // now we should see editable text fields
     expect(find.byType(TextField), findsNWidgets(2));
-    expect(find.text('Save'), findsOneWidget);
+    expect(find.text('Save Changes'), findsOneWidget);
   });
 
   testWidgets('Click Delete shows confirmation dialog', (tester) async {
@@ -185,9 +244,12 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Confirm Delete'), findsOneWidget);
-    expect(find.text('Are you sure to delete this post?'), findsOneWidget);
+    expect(
+      find.text(
+        'Are you sure you want to delete this post? This action cannot be undone.',
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Cancel'), findsOneWidget);
   });
 }
-
-
